@@ -102,4 +102,28 @@ HNode *hm_lookup(HMap *hmap, HNode *key, bool (*eq)(HNode *, HNode *)) {
   from = from ? from : h_lookup(&hmap->ht2, key, eq);
 
   return from ? *from : NULL;
-} 
+}
+
+HNode *hm_pop(HMap *hmap, HNode *key, bool (*eq)(HNode *, HNode *)) {
+  hm_help_resizing(hmap);
+
+  if (HNode **from = h_lookup(&hmap->ht1, key, eq)) {
+    return h_detach(&hmap->ht1, from);
+  }
+
+  if (HNode **from = h_lookup(&hmap->ht2, key, eq)) {
+    return h_detach(&hmap->ht2, from);
+  }
+
+  return NULL;
+}
+
+size_t hm_size(HMap *hmap) {
+  return hmap->ht1.size + hmap->ht2.size;
+}
+
+void hm_destroy(HMap *hmap) {
+  free(hmap->ht1.tab);
+  free(hmap->ht2.tab);
+  *hmap = HMap{};
+}
