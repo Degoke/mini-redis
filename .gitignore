@@ -1,2 +1,7 @@
 client
 server
+test_avl
+CMakeFiles
+cmake_install.cmake 
+CMakeCache.txt
+MakeFile

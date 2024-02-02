@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <set>
+#include <iostream>
 #include "avl.cpp"
 
 #define container_of(ptr, type, member) ({ \
@@ -172,6 +173,7 @@ static void test_remove(uint32_t sz) {
 }
 
 int main() {
+  std::cout << "starting tests\n";
   Container c;
 
   container_verify(c, {});
@@ -219,5 +221,6 @@ int main() {
   }
 
   dispose(c);
+  std::cout << "tests done\n";
   return 0;
 }

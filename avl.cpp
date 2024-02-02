@@ -1,19 +1,6 @@
-#include <stddef.h>
-#include <stdint.h>
+#include "avl.h"
 
-struct AVLNode {
-  uint32_t depth = 0;
-  uint32_t cnt = 0;
-  AVLNode *left = NULL;
-  AVLNode *right = NULL;
-  AVLNode *parent = NULL;
-};
 
-static void avl_init(AVLNode *node) {
-  node->depth = 1;
-  node->cnt = 1;
-  node->left = node->right = node->parent = NULL;
-};
 
 static uint32_t avl_depth(AVLNode *node) {
   return node ? node->depth : 0;
@@ -80,7 +67,7 @@ static AVLNode *avl_fix_right(AVLNode *root) {
 }
 
 // fix imbalanced nodes and maintain invariants until the root is reached
-static AVLNode *avl_fix(AVLNode *node) {
+AVLNode *avl_fix(AVLNode *node) {
   while (true) {
     avl_update(node);
     uint32_t l = avl_depth(node->left);
@@ -107,7 +94,7 @@ static AVLNode *avl_fix(AVLNode *node) {
 }
 
 //detach a node and return the new root of the tree
-static AVLNode *avl_del(AVLNode *node) {
+AVLNode *avl_del(AVLNode *node) {
   if (node->right == NULL) {
     //no right subtree, replace the node with the left subtree
     //link the left subtree to the parent
@@ -125,23 +112,23 @@ static AVLNode *avl_del(AVLNode *node) {
       return node->left;
     }
   } else {
-    //detach the successor
+    // swap the nopd ewith its next sibling
     AVLNode *victim = node->right;
     while (victim->left) {
       victim = victim->left;
     }
     AVLNode *root = avl_del(victim);
-    // swap with it 
+    
     *victim = *node;
     if (victim->left) {
       victim->left->parent = victim;
     }
-
     if (victim->right) {
       victim->right->parent = victim;
     }
 
-    if (AVLNode *parent = node->parent) {
+    AVLNode *parent = node->parent;
+    if (parent) {
       (parent->left == node ? parent->left : parent->right) = victim;
       return root;
     } else {
@@ -149,4 +136,34 @@ static AVLNode *avl_del(AVLNode *node) {
       return victim;
     }
   }
+}
+
+AVLNode *avl_offset(AVLNode *node, int64_t offset) {
+  int64_t pos = 0;
+  while (offset != pos) {
+    if (pos < offset && pos + avl_cnt(node->right) >= offset) {
+      // the target is insid e the right subtree
+      node = node->right;
+      pos += avl_cnt(node->left) + 1;
+    } else if (pos > offset && pos - avl_cnt(node->left) <= offset) {
+      // the target is inside the left subtree
+      node = node->left;
+      pos -= avl_cnt(node->right) + 1;
+    } else {
+      // go to the parent
+      AVLNode *parent = node->parent;
+      if (!parent) {
+        return NULL; //out of range
+      }
+
+      if (parent->right == node) {
+        pos -= avl_cnt(node->left) + 1;
+      } else {
+        pos += avl_cnt(node->right) + 1;
+      }
+
+      node = parent;
+    }
+  }
+  return node;
 }

@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <vector>
 #include <string>
+#include "common.h"
 
 const size_t k_max_msg = 4096;
 
@@ -85,14 +86,6 @@ static int32_t send_req(int fd, const std::vector<std::string> &cmd) {
   return write_all(fd, wbuf, 4 + len);
 }
 
-enum {
-  SER_NIL = 0,
-  SER_ERR = 1,
-  SER_STR = 2,
-  SER_INT = 3,
-  SER_ARR = 4,
-};
-
 static int32_t on_response(const uint8_t *data, size_t size) {
   if (size < 1) {
     msg("bad response");
@@ -149,6 +142,17 @@ static int32_t on_response(const uint8_t *data, size_t size) {
         int64_t val = 0;
         memcpy(&val, &data[1], 8);
         printf("(int) %ld\n", val);
+        return 1 + 8;
+      }
+    case SER_DBL:
+      if (size < 1 + 8) {
+        msg("bad response");
+        return -1;
+      }
+      {
+        double val = 0;
+        memcpy(&val, &data[1], 8);
+        printf("(dbl) %g\n", val);
         return 1 + 8;
       }
     case SER_ARR:
@@ -253,40 +257,7 @@ int main(int argc, char **argv) {
     goto L_DONE;
   }
   
-  // multiple pipelined requests
- /* const char *query_list[3] = {"hello1", "hello2", "hello3"};
-
-  for (size_t i = 0; i < 3; ++i) {
-    int32_t err = send_req(fd, query_list[i]);
-    if (err) {
-      goto L_DONE;
-    }
-  }
-
-  for (size_t i = 0; i < 3; ++i) {
-    int32_t err = read_res(fd);
-    if (err) {
-      goto L_DONE;
-    }
-  }*?
-
-
-  int32_t err = query(fd, "hello1");
-  if (err) {
-    goto L_DONE;
-  }
-
-  err = query(fd, "hello2");
-  if (err) {
-    goto L_DONE;
-  }
-
-  err = query(fd, "hello 3");
-  if (err) {
-    goto L_DONE;
-  }*/
-
-L_DONE:
+  L_DONE:
   close(fd);
   return 0;
 }
