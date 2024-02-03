@@ -15,10 +15,10 @@
 #include <poll.h>
 #include <fcntl.h>
 #include <string>
-#include <map>
 #include "hashtable.h"
 #include "common.h"
 #include "zset.h"
+#include "list.h"
 
 const size_t k_max_msg = 4096;
 const size_t k_max_args = 1024;
@@ -43,7 +43,18 @@ struct Conn {
   size_t wbuf_size = 0;
   size_t wbuf_sent = 0;
   uint8_t wbuf[4 + k_max_msg];
+  uint64_t idle_start = 0;
+  DList idle_list;
 };
+
+// yhe data structure for the key space
+static struct {
+  HMap db;
+  // a map of all client collections, keyed by fd 
+  std::vector<Conn *> fd2conn;
+  // timers for idle connections 
+  DList idle_list;
+} g_data;
 
 enum {
   T_STR = 0,
@@ -58,13 +69,6 @@ struct Entry {
   std::string val;
   ZSet *zset = NULL;
 };
-
-// yhe data structure for the key space
-static struct {
-  HMap db;
-} g_data;
-
-static std::map<std::string, std::string> g_map;
 
 static void msg(const char *msg) {
   fprintf(stderr, "%s\n", msg);
@@ -97,6 +101,12 @@ static void fd_set_nb(int fd) {
   }
 }
 
+static uint64_t get_monotonic_usec() {
+  timespec tv = {0,0};
+  clock_gettime(CLOCK_MONOTONIC, &tv);
+  return uint64_t(tv.tv_sec) * 1000000 + tv.tv_nsec / 1000;
+}
+
 static void conn_put(std::vector<Conn *> &fd2conn, struct Conn *conn) {
   if (fd2conn.size() <= (size_t)conn->fd) {
     fd2conn.resize(conn->fd + 1);
@@ -116,7 +126,8 @@ static int32_t accept_new_conn(std::vector<Conn *>&fd2conn, int fd) {
   }
 
   fd_set_nb(connfd);
-
+  
+  // creating the struct Conn
   struct Conn *conn = (struct Conn *)malloc(sizeof(struct Conn));
 
   if (!conn) {
@@ -129,7 +140,9 @@ static int32_t accept_new_conn(std::vector<Conn *>&fd2conn, int fd) {
   conn->rbuf_size = 0;
   conn->wbuf_size = 0;
   conn->wbuf_sent = 0;
-  conn_put(fd2conn, conn);
+  conn->idle_start = get_monotonic_usec();
+  dlist_insert_before(&g_data.idle_list, &conn->idle_list);
+  conn_put(g_data.fd2conn, conn);
   return 0;
 }
 
@@ -603,6 +616,46 @@ static bool try_fill_buffer(Conn *conn) {
   return (conn->state == STATE_REQ);
 }
 
+const uint64_t k_idle_timeout_ms = 5 * 1000;
+
+static uint32_t next_timer_ms() {
+  if (dlist_empty(&g_data.idle_list)) {
+    return 10000;
+  }
+
+  uint64_t now_us = get_monotonic_usec();
+  Conn *next = container_of(g_data.idle_list.next, Conn, idle_list);
+  uint64_t next_us = next->idle_start + k_idle_timeout_ms * 1000;
+  if (next_us <= now_us) {
+    // missed?
+    return 0;
+  }
+
+  return (uint32_t)((next_us - now_us) / 1000);
+}
+
+static void conn_done(Conn *conn) {
+  g_data.fd2conn[conn->fd] = NULL;
+  (void)close(conn->fd);
+  dlist_detach(&conn->idle_list);
+  free(conn);
+}
+
+static void process_timers() {
+  uint64_t now_us = get_monotonic_usec();
+  while(!dlist_empty(&g_data.idle_list)) {
+    Conn *next = container_of(g_data.idle_list.next, Conn, idle_list);
+    uint64_t next_us = next -> idle_start + k_idle_timeout_ms * 1000;
+    if (next_us >= now_us + 1000) {
+      // not ready, the extra 1000us is for the ms resolution of poll()
+      break;
+    }
+
+    printf("removing idle connection: %d\n", next->fd);
+    conn_done(next);
+  }
+}
+
 static void state_req(Conn *conn) {
   while (try_fill_buffer(conn));
 }
@@ -645,6 +698,13 @@ static void state_res(Conn *conn) {
 }
 
 static void connection_io(Conn *conn) {
+  // waked up by poll, updtae the idle buffer
+  // by moving conn to the end of the list
+  conn->idle_start = get_monotonic_usec();
+  dlist_detach(&conn->idle_list);
+  dlist_insert_before(&g_data.idle_list, &conn->idle_list);
+
+  // do the work
   if (conn->state == STATE_REQ) {
     state_req(conn);
   } else if (conn->state == STATE_RES) {
@@ -655,6 +715,8 @@ static void connection_io(Conn *conn) {
 }
 
 int main() {
+  dlist_init(&g_data.idle_list);
+
   int fd = socket(AF_INET, SOCK_STREAM, 0);
 
   if (fd < 0) {
@@ -707,7 +769,9 @@ int main() {
       poll_args.push_back(pfd);
     }
 
-    int rv = poll(poll_args.data(), (nfds_t)poll_args.size(), 1000);
+    // poll foor active fds 
+    int timeout_ms = (int)next_timer_ms();
+    int rv = poll(poll_args.data(), (nfds_t)poll_args.size(), timeout_ms);
 
     if (rv < 0) {
       die("poll");
@@ -719,19 +783,19 @@ int main() {
         connection_io(conn);
 
         if (conn->state == STATE_END) {
-          fd2conn[conn->fd] = NULL;
-          (void)close(conn->fd);
-          free(conn);
+          // client closed normally or something bad happened
+          // destroy this connection_io
+          conn_done(conn);
         } 
       }
     }
 
+    // handle timers
+    process_timers();
+
     if (poll_args[0].revents) {
       (void)accept_new_conn(fd2conn, fd);
     }
-
-
-    //close(connfd);
   }
 
   return 0;
