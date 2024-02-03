@@ -20,6 +20,7 @@
 #include "zset.h"
 #include "list.h"
 #include "heap.h"
+#include "thread_pool.h"
 
 const size_t k_max_msg = 4096;
 const size_t k_max_args = 1024;
@@ -57,6 +58,8 @@ static struct {
   DList idle_list;
   //timers fro TTLs 
   std::vector<HeapItem> heap;
+  // the thread_pool
+  ThreadPool tp;
 } g_data;
 
 enum {
@@ -293,15 +296,39 @@ static void do_set(
   return out_nil(out);
 }
 
+// deallocate key immediately
+static void entry_destroy(Entry *ent) {
+  switch(ent->type) {
+    case T_ZSET:
+      zset_dispose(ent->zset);
+      delete ent->zset;
+      break;
+  }
+  delete ent;
+}
+
+static void entry_del_async(void *arg) {
+  entry_destroy((Entry *)arg);
+}
+
+//dispose the entry after it got detached from the key space
 static void entry_del(Entry *ent) {
+  entry_set_ttl(ent, -1);
+  
+  const size_t k_large_container_size = 10000;
+  bool too_big = false;
+
   switch (ent->type) {
     case T_ZSET:
-    zset_dispose(ent->zset);
-    delete ent->zset;
+    too_big = hm_size(&ent->zset->hmap) > k_large_container_size;
     break;
   }
-  entry_set_ttl(ent, -1);
-  delete ent;
+  
+  if (too_big) {
+    thread_pool_queue(&g_data.tp, &entry_del_async, ent);
+  } else {
+    entry_destroy(ent);
+  }
 }
 
 static void do_del(
@@ -826,7 +853,9 @@ static void connection_io(Conn *conn) {
 }
 
 int main() {
+  // some initializations
   dlist_init(&g_data.idle_list);
+  thread_pool_init(&g_data.tp, 4);
 
   int fd = socket(AF_INET, SOCK_STREAM, 0);
 

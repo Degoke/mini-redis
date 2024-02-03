@@ -262,6 +262,30 @@ server.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/server.cpp.s
 .PHONY : server.cpp.s
 
+thread_pool.o: thread_pool.cpp.o
+.PHONY : thread_pool.o
+
+# target to build an object file
+thread_pool.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/thread_pool.cpp.o
+.PHONY : thread_pool.cpp.o
+
+thread_pool.i: thread_pool.cpp.i
+.PHONY : thread_pool.i
+
+# target to preprocess a source file
+thread_pool.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/thread_pool.cpp.i
+.PHONY : thread_pool.cpp.i
+
+thread_pool.s: thread_pool.cpp.s
+.PHONY : thread_pool.s
+
+# target to generate assembly for a file
+thread_pool.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/server.dir/build.make CMakeFiles/server.dir/thread_pool.cpp.s
+.PHONY : thread_pool.cpp.s
+
 zset.o: zset.cpp.o
 .PHONY : zset.o
 
@@ -311,6 +335,9 @@ help:
 	@echo "... server.o"
 	@echo "... server.i"
 	@echo "... server.s"
+	@echo "... thread_pool.o"
+	@echo "... thread_pool.i"
+	@echo "... thread_pool.s"
 	@echo "... zset.o"
 	@echo "... zset.i"
 	@echo "... zset.s"
